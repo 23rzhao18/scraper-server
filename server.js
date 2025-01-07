@@ -50,40 +50,60 @@ const ensureTablesExist = async () => {
 
 ensureTablesExist();
 
-// Fetch data from the database (brawlers)
-app.get('/data/brawlers', async (req, res) => {
+// Function to clear a specific table and reset the id
+const clearTable = async (tableName) => {
     try {
         const client = await pool.connect();
-        const result = await client.query('SELECT * FROM brawlers ORDER BY id ASC');
+        await client.query(`TRUNCATE TABLE ${tableName} RESTART IDENTITY CASCADE`);
         client.release();
-        res.json(result.rows); // Send the data as JSON
+        console.log(`${tableName} table cleared and ID reset successfully.`);
     } catch (error) {
-        console.error('Error fetching brawlers data:', error);
-        res.status(500).json({ error: 'Failed to fetch brawlers data' });
+        console.error(`Error clearing and resetting the ${tableName} table:`, error);
+    }
+};
+
+// Define the scrape endpoint for brawlers
+app.get('/scrape/brawlers', async (req, res) => {
+    try {
+        // Clear only the brawlers table before scraping new data
+        await clearTable('brawlers');
+
+        const data = await scrapeBrawlersData();
+        await saveBrawlersToDatabase(data);
+        res.json({ message: 'Brawlers data scraped and saved successfully.', data });
+    } catch (error) {
+        console.error('Error scraping brawlers data:', error);
+        res.status(500).json({ error: 'Failed to scrape brawlers data.' });
     }
 });
 
-// Fetch data from the database (brawl data)
-app.get('/data/brawl_data', async (req, res) => {
+// Define the scrape endpoint for brawl data
+app.get('/scrape/brawl_data', async (req, res) => {
     try {
-        const client = await pool.connect();
-        const result = await client.query('SELECT * FROM brawl_data ORDER BY id ASC');
-        client.release();
-        res.json(result.rows); // Send the data as JSON
+        // Clear only the brawl_data table before scraping new data
+        await clearTable('brawl_data');
+
+        const data = await scrapeBrawlData();
+        await saveBrawlDataToDatabase(data);
+        res.json({ message: 'Brawl data scraped and saved successfully.', data });
     } catch (error) {
-        console.error('Error fetching brawl data:', error);
-        res.status(500).json({ error: 'Failed to fetch brawl data' });
+        console.error('Error scraping brawl data:', error);
+        res.status(500).json({ error: 'Failed to scrape brawl data.' });
     }
 });
+
 
 // Function to save brawlers to PostgreSQL
 const saveBrawlersToDatabase = async (data) => {
     try {
         const client = await pool.connect();
         for (const row of data) {
+            // Convert brawler name to uppercase
+            const brawlerNameUpperCase = row.name.toUpperCase();
+            
             await client.query(
                 'INSERT INTO brawlers (name, class) VALUES ($1, $2)',
-                [row.name, row.class]
+                [brawlerNameUpperCase, row.class]
             );
         }
         client.release();
@@ -93,11 +113,16 @@ const saveBrawlersToDatabase = async (data) => {
     }
 };
 
+
 // Function to save brawl data to PostgreSQL
+// Function to save brawl data to PostgreSQL (with brawlers' names in uppercase)
 const saveBrawlDataToDatabase = async (data) => {
     try {
         const client = await pool.connect();
         for (const row of data) {
+            // Convert brawler name to uppercase
+            const brawlerUpperCase = row.brawler.toUpperCase();
+
             await client.query(
                 `
                 INSERT INTO brawl_data (rank, brawler, wins, use_rate)
@@ -108,7 +133,7 @@ const saveBrawlDataToDatabase = async (data) => {
                     wins = EXCLUDED.wins,
                     use_rate = EXCLUDED.use_rate
                 `,
-                [row.rank, row.brawler, row.wins, row.useRate]
+                [row.rank, brawlerUpperCase, row.wins, row.useRate]
             );
         }
         client.release();
