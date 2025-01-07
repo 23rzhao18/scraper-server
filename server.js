@@ -1,8 +1,8 @@
-require('dotenv').config();
 const express = require('express');
 const puppeteer = require('puppeteer');
 const cors = require('cors');
 const { Pool } = require('pg');
+require('dotenv').config();
 
 // Initialize Express app
 const app = express();
@@ -13,11 +13,44 @@ app.use(cors());
 
 // PostgreSQL Database Configuration
 const pool = new Pool({
-    user: process.env.PG_USER,       // PostgreSQL username
-    host: process.env.PG_HOST,       // Database host
-    database: process.env.PG_DB,     // Database name
-    password: process.env.PG_PASS,   // Password
-    port: process.env.PG_PORT || 5432, // Default PostgreSQL port
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+});
+
+// Ensure the table exists
+const ensureTableExists = async () => {
+    const createTableQuery = `
+        CREATE TABLE IF NOT EXISTS brawl_data (
+            id SERIAL PRIMARY KEY,
+            rank VARCHAR(10),
+            brawler VARCHAR(50),
+            wins VARCHAR(10),
+            use_rate VARCHAR(10)
+        );
+    `;
+    try {
+        const client = await pool.connect();
+        await client.query(createTableQuery);
+        client.release();
+        console.log('Table ensured/created successfully.');
+    } catch (error) {
+        console.error('Error ensuring table exists:', error);
+    }
+};
+
+ensureTableExists();
+
+// Fetch data from the database
+app.get('/data', async (req, res) => {
+    try {
+        const client = await pool.connect();
+        const result = await client.query('SELECT * FROM brawl_data ORDER BY id ASC');
+        client.release();
+        res.json(result.rows); // Send the data as JSON
+    } catch (error) {
+        console.error('Error fetching data:', error);
+        res.status(500).json({ error: 'Failed to fetch data' });
+    }
 });
 
 // Function to save data to PostgreSQL
